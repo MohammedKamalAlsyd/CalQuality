@@ -1,4 +1,4 @@
-# python -m scripts.init_sqlite
+# python -m src.scripts.init_sqlite
 
 import sqlite3
 import pandas as pd
