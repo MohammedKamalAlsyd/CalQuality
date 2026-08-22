@@ -4,12 +4,8 @@ import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from src.embeddings.embedder import UnifiedEmbedder
-from dotenv import load_dotenv
+from src.config import embedder, PDF_DIR, FAISS_DIR
 
-PDF_DIR = "data/pdf/"
-FAISS_DIR = "data/faiss_index/"
-load_dotenv()
 
 # Metadata mapping for strict Access Control
 METADATA_MAP = {
@@ -21,14 +17,7 @@ METADATA_MAP = {
     "06_LumenWorks_Service_Agreement.pdf": {"doc_type": "contract", "status": "current", "account_id": "ACCT-002"}
 }
 
-def init_vectorstore():
-    # 1. Initialize our custom Embedder
-    # Change config based on your preference (hf, bedrock, voyage)
-    embedder = UnifiedEmbedder(
-        model_name="voyage-code-3", 
-        config={"type": "voyage"}
-    )
-    
+def init_vectorstore():    
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     all_chunks = []
 

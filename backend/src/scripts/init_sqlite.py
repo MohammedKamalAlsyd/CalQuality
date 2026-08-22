@@ -3,10 +3,7 @@
 import sqlite3
 import pandas as pd
 import os
-
-# Paths
-EXCEL_PATH = 'data/excel/ParcelPilot_Assessment_Data.xlsx'
-DB_PATH = 'data/parcelpilot.db'
+from src.config import DB_PATH, EXCEL_PATH
 
 def init_db():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
