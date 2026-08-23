@@ -35,29 +35,39 @@ def execute_confirmed_action(action_type: str, target_id: str, account_id: str, 
     cursor = conn.cursor()
     
     try:
-        # Check for both "escalate_ticket" and "escalate"
         if action_type in ["escalate_ticket", "escalate"]:
-            cursor.execute(
-                "UPDATE tickets SET status = 'ESCALATED', priority = 'P1' WHERE ticket_id = ?",
-                (target_id,)
-            )
-            conn.commit()
-            return f"✅ Ticket {target_id} has been formally escalated to P1 in the database."
+            # 🧠 BRAIN CHECK: Does the ticket exist? Is it already escalated?
+            cursor.execute("SELECT status, priority FROM tickets WHERE ticket_id = ?", (target_id,))
+            row = cursor.fetchone()
             
-        # Check for both "cancel_order" and "cancel"
+            if not row:
+                return f"❌ FAILURE: Ticket {target_id} does not exist in the database. Tell the user."
+            if row[0] == 'ESCALATED' and row[1] == 'P1':
+                return f"⚠️ INFO: Ticket {target_id} is ALREADY escalated and marked as P1. No changes were made."
+                
+            # If it exists and isn't escalated yet, execute the update!
+            cursor.execute("UPDATE tickets SET status = 'ESCALATED', priority = 'P1' WHERE ticket_id = ?", (target_id,))
+            conn.commit()
+            return f"✅ SUCCESS: Ticket {target_id} was found and successfully escalated to P1 in the database."
+            
         elif action_type in ["cancel_order", "cancel"]:
-            cursor.execute(
-                "UPDATE orders SET status = 'CANCELLED' WHERE order_id = ?",
-                (target_id,)
-            )
+            # 🧠 BRAIN CHECK: Does the order exist? Is it already cancelled?
+            cursor.execute("SELECT status FROM orders WHERE order_id = ?", (target_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return f"❌ FAILURE: Order {target_id} does not exist in the database."
+            if row[0] == 'CANCELLED':
+                return f"⚠️ INFO: Order {target_id} is ALREADY cancelled. No changes made."
+                
+            cursor.execute("UPDATE orders SET status = 'CANCELLED' WHERE order_id = ?", (target_id,))
             conn.commit()
             fee = (metadata or {}).get("cancellation_fee_inr", 0)
-            return f"✅ Order {target_id} has been marked as CANCELLED in database. Applied fee: ₹{fee}."
+            return f"✅ SUCCESS: Order {target_id} has been marked as CANCELLED. Applied fee: ₹{fee}."
 
-        # Check for both "grant_credit" and "credit"
         elif action_type in ["grant_credit", "credit"]:
             amount = (metadata or {}).get("credit_amount_inr", 0)
-            return f"✅ Service credit of ₹{amount} has been logged and issued to account {account_id}."
+            return f"✅ SUCCESS: Service credit of ₹{amount} has been securely logged to account {account_id}."
 
         return f"Action {action_type} executed successfully on {target_id}."
     except Exception as e:
