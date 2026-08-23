@@ -14,7 +14,7 @@ from src.agent.prompts import SYSTEM_PROMPT
 from src.config import DATASET_SNAPSHOT_TIME, CURRENCY
 
 tools = [search_documents, query_structured_data, request_action_confirmation]
-MODEL_ID = os.getenv("GENERATION_MODEL_ID", "meta.llama3-70b-instruct-v1:0")
+MODEL_ID = os.getenv("GENERATION_MODEL_ID", "openai.gpt-oss-120b-1:0")
 
 llm = ChatBedrockConverse(
     client=bedrock,
