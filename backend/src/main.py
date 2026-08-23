@@ -66,8 +66,13 @@ def extract_recent_tools(messages: list) -> list:
     last_human_idx = next((i for i, msg in reversed(list(enumerate(messages))) if msg.type == 'human'), -1)
     if last_human_idx != -1:
         for msg in messages[last_human_idx:]:
-            if msg.type == 'tool' and msg.name != "request_action_confirmation":
-                used_tools.append({"name": msg.name, "content": str(msg.content)})
+            tool_name = getattr(msg, "name", None) or "unknown_tool"
+            
+            if msg.type == 'tool' and tool_name != "request_action_confirmation":
+                used_tools.append({
+                    "name": str(tool_name), 
+                    "content": str(msg.content)
+                })
     return used_tools
 
 @app.get("/health")
@@ -275,6 +280,7 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
     
     tool_message = ToolMessage(
         tool_call_id=request.tool_call_id,
+        name="request_action_confirmation",
         content=status_msg
     )
     
