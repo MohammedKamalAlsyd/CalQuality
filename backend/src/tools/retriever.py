@@ -1,4 +1,5 @@
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 from langchain_community.vectorstores import FAISS
 from src.config import embedder, FAISS_DIR
 
@@ -10,16 +11,13 @@ vectorstore = FAISS.load_local(
 )
 
 @tool
-def search_documents(query: str, account_id: str = "GLOBAL") -> str:
+def search_documents(query: str, config: RunnableConfig) -> str:
     """
     Search policies, agreements, product documentation, and SOPs.
     Always use this to check rules before answering.
-    
-    Args:
-        query: The search question.
-        account_id: The ID of the account (e.g., 'ACCT-001'). If internal ops, use 'GLOBAL'.
     """
-    # Fetch top 5 documents
+    account_id = config.get("configurable", {}).get("account_id", "GLOBAL")
+    
     docs = vectorstore.similarity_search(query, k=5)
     
     # ENFORCE ACCESS CONTROL & SOURCE PRECEDENCE AT DATA LAYER

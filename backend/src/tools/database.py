@@ -2,16 +2,16 @@ import os
 import sqlite3
 import pandas as pd
 from sqlalchemy import create_engine
-from sqlalchemy.pool import StaticPool  # <--- CRITICAL FIX
+from sqlalchemy.pool import StaticPool
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
 from langchain_aws import ChatBedrockConverse
 
 from src.clients.bedrock import bedrock
+from src.config import DB_PATH, MODEL_ID
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "../../data/parcelpilot.db")
-MODEL_ID = os.getenv("GENERATION_MODEL_ID", "meta.llama3-70b-instruct-v1:0")
 
 def create_scoped_db(account_id: str) -> SQLDatabase:
     """
@@ -35,7 +35,7 @@ def create_scoped_db(account_id: str) -> SQLDatabase:
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,  # <--- Keeps the in-memory DB alive
+        poolclass=StaticPool,
         echo=False
     )
     
@@ -47,11 +47,14 @@ def create_scoped_db(account_id: str) -> SQLDatabase:
     return SQLDatabase(engine)
 
 @tool
-def query_structured_data(query: str, account_id: str) -> str:
+def query_structured_data(query: str, config: RunnableConfig) -> str:
     """
     Query or calculate information using the account, order, and ticket data.
     Useful for looking up order statuses, shipment fees, ticket history, etc.
     """
+    # It comes from the FastAPI request.
+    account_id = config.get("configurable", {}).get("account_id", "UNKNOWN")
+    
     try:
         db = create_scoped_db(account_id)
         
@@ -90,7 +93,7 @@ def query_structured_data(query: str, account_id: str) -> str:
         elif "```" in generated_sql:
             generated_sql = generated_sql.split("```")[1].split("```")[0].strip()
             
-        print(f"   📊 [SQL Executed]: {generated_sql}")
+        print(f"   📊 [SQL Executed for {account_id}]: {generated_sql}")
         
         # 5. Execute against the database
         execute_tool = QuerySQLDataBaseTool(db=db)

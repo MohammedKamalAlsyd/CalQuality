@@ -1,14 +1,15 @@
 import json
 from typing import Optional, Dict, Any
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 @tool
 def request_action_confirmation(
     action_type: str, 
     ticket_or_order_id: str, 
     reason: str, 
-    account_id: str,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    config: Optional[RunnableConfig] = None
 ) -> str:
     """
     Use this tool when you need to perform a state-changing action like:
@@ -28,6 +29,8 @@ def request_action_confirmation(
             - For 'escalate_ticket': include 'severity' ('P1'|'P2'|'P3'), 'csm' (str), and 'sla_breached' (bool).
             - For 'cancel_order': include 'cancellation_fee_inr' (int) and 'order_status' (str).
     """
+
+    account_id = (config or {}).get("configurable", {}).get("account_id", "UNKNOWN")
     
     payload = {
         "status": "PENDING_CONFIRMATION",

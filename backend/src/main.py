@@ -80,7 +80,12 @@ def chat_endpoint(request: ChatRequest):
     thread_id = request.thread_id or str(uuid.uuid4())
     
     # Explicit RunnableConfig typing to satisfy Pylance
-    config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+    config: RunnableConfig = {
+        "configurable": {
+            "thread_id": thread_id,
+            "account_id": request.account_id # Invisible to the LLM, but tools can see it
+        }
+    }
     
     try:
         state = agent_app.invoke(
@@ -122,7 +127,12 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
     Endpoint called when the user clicks 'Confirm' or 'Cancel' on the frontend UI.
     """
     # Explicit RunnableConfig typing to satisfy Pylance
-    config: RunnableConfig = {"configurable": {"thread_id": request.thread_id}}
+    config: RunnableConfig = {
+        "configurable": {
+            "thread_id": request.thread_id,
+            "account_id": request.account_id 
+        }
+    }
     
     status_msg = (
         "Action confirmed by user. Proceed to finalize." 
