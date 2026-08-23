@@ -4,6 +4,8 @@ import uuid
 import json
 import sqlite3
 from typing import Optional, Dict, Any, List
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -13,8 +15,33 @@ from langchain_core.runnables import RunnableConfig
 from src.agent.graph import app as agent_app
 from src.tools.actions import execute_confirmed_action
 from src.config import DB_PATH, DATASET_SNAPSHOT_TIME
+from src.scripts.init_sqlite import init_db
 
-app = FastAPI(title="ParcelPilot AI Support API", version="1.1")
+# ==========================================
+# Application Startup (Lifespan)
+# ==========================================
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Runs automatically when the FastAPI server starts."""
+    print("🚀 Server starting: Initializing SQLite database from Excel...")
+    try:
+        init_db()
+        print("✅ Database initialization complete!")
+    except Exception as e:
+        print(f"❌ Failed to initialize database on startup: {e}")
+        
+    yield  # The app runs here
+    
+    print("🛑 Server shutting down...")
+
+# ==========================================
+# FastAPI Initialization
+# ==========================================
+app = FastAPI(
+    title="ParcelPilot AI Support API", 
+    version="1.1",
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -135,7 +162,7 @@ def get_ops_anomalies():
         t_acc = ticket_cols.get("account_id", "account_id")
         t_status = ticket_cols.get("status", "status")
         
-        # Priority can be named 'priority', 'severity', or 'tier'
+        # Priority can be named 'priority', 'severity', or 'urgency'
         t_pri = (
             ticket_cols.get("priority") 
             or ticket_cols.get("severity") 
@@ -254,7 +281,6 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
     """
     Endpoint called when the user clicks 'Confirm' or 'Cancel' on the frontend UI.
     """
-    # Explicit RunnableConfig typing to satisfy Pylance
     config: RunnableConfig = {
         "configurable": {
             "thread_id": request.thread_id,
@@ -274,7 +300,11 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
             reason=action_args.get("reason", ""),
             metadata=action_args.get("metadata", {})
         )
-        status_msg = f"User confirmed action. Execution Result: {execution_result_msg}"
+        status_msg = (
+            f"SYSTEM: User confirmed action. Execution Result: {execution_result_msg}. "
+            f"CRITICAL INSTRUCTION: The backend has already executed the database change. "
+            f"DO NOT call any more tools. Just tell the user the action was successful and stop."
+        )
     else:
         status_msg = "User REJECTED the action. Inform the user that the operation was canceled."
     
