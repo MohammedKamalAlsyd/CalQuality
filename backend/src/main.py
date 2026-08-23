@@ -121,7 +121,9 @@ def get_ops_anomalies():
     anomalies = []
     
     try:
-        # Inspect columns for 'orders' table
+        # ---------------------------------------------------------
+        # 1. Scan for carrier delivery/pickup issues
+        # ---------------------------------------------------------
         cursor.execute("PRAGMA table_info(orders)")
         order_cols = {col["name"].lower(): col["name"] for col in cursor.fetchall()}
         
@@ -129,7 +131,6 @@ def get_ops_anomalies():
         carrier_col = order_cols.get("carrier", "carrier")
         account_col = order_cols.get("account_id", "account_id")
 
-        # 1. Scan for carrier delivery/pickup issues
         if carrier_col in order_cols and status_col in order_cols:
             query = f"""
                 SELECT {carrier_col} AS carrier, 
@@ -154,69 +155,42 @@ def get_ops_anomalies():
                     "suggested_action": "Notify affected accounts and initiate preemptive credit evaluation."
                 })
 
-        # Inspect columns for 'tickets' table
+        # ---------------------------------------------------------
+        # 2. Scan for high-severity or open tickets (FAIL-PROOF)
+        # ---------------------------------------------------------
         cursor.execute("PRAGMA table_info(tickets)")
         ticket_cols = {col["name"].lower(): col["name"] for col in cursor.fetchall()}
         
         t_id = ticket_cols.get("ticket_id", "ticket_id")
         t_acc = ticket_cols.get("account_id", "account_id")
         t_status = ticket_cols.get("status", "status")
-        
-        # Priority can be named 'priority', 'severity', or 'urgency'
-        t_pri = (
-            ticket_cols.get("priority") 
-            or ticket_cols.get("severity") 
-            or ticket_cols.get("urgency") 
-            or ticket_cols.get("level")
-        )
-        
-        # Subject / Issue description column
-        t_subj = (
-            ticket_cols.get("subject") 
-            or ticket_cols.get("issue") 
-            or ticket_cols.get("description") 
-            or ticket_cols.get("title") 
-            or t_id
-        )
+        t_subj = ticket_cols.get("subject", "subject")
 
-        # 2. Scan for high-severity or open tickets
-        if t_pri and t_status:
-            cursor.execute(f"""
-                SELECT {t_id} AS ticket_id, 
-                       {t_acc} AS account_id, 
-                       {t_subj} AS subject,
-                       {t_pri} AS priority
-                FROM tickets 
-                WHERE (UPPER({t_pri}) LIKE '%P1%' OR UPPER({t_pri}) LIKE '%HIGH%' OR UPPER({t_pri}) LIKE '%CRITICAL%')
-                  AND UPPER({t_status}) NOT LIKE '%CLOSE%'
-                  AND UPPER({t_status}) NOT LIKE '%RESOLV%'
-            """)
-            for row in cursor.fetchall():
-                anomalies.append({
-                    "key": f"sla_{row['ticket_id']}",
-                    "type": f"Urgent Open Ticket ({row['priority']})",
-                    "severity": "high",
-                    "affected_accounts": [row['account_id']],
-                    "description": f"Ticket {row['ticket_id']}: '{row['subject']}' is unclosed.",
-                    "suggested_action": "Reassign to senior tier support manager immediately."
-                })
-        else:
-            # Fallback if no priority column exists: flag open tickets
-            cursor.execute(f"""
-                SELECT {t_id} AS ticket_id, {t_acc} AS account_id, {t_subj} AS subject
-                FROM tickets
-                WHERE UPPER({t_status}) NOT LIKE '%CLOSE%' AND UPPER({t_status}) NOT LIKE '%RESOLV%'
-                LIMIT 5
-            """)
-            for row in cursor.fetchall():
-                anomalies.append({
-                    "key": f"open_{row['ticket_id']}",
-                    "type": "Open Support Ticket",
-                    "severity": "medium",
-                    "affected_accounts": [row['account_id']],
-                    "description": f"Ticket {row['ticket_id']}: '{row['subject']}' is pending resolution.",
-                    "suggested_action": "Review ticket details against customer SLA."
-                })
+        # Query all tickets that are not closed or resolved
+        cursor.execute(f"""
+            SELECT {t_id} AS ticket_id, 
+                   {t_acc} AS account_id, 
+                   {t_subj} AS subject, 
+                   {t_status} AS status
+            FROM tickets 
+            WHERE UPPER({t_status}) NOT LIKE '%CLOSE%' 
+              AND UPPER({t_status}) NOT LIKE '%RESOLV%'
+        """)
+        
+        for row in cursor.fetchall():
+            status_val = str(row['status']).upper().strip()
+            
+            # If the chat AI updated the database, the status will now be 'ESCALATED'
+            is_escalated = (status_val == 'ESCALATED')
+            
+            anomalies.append({
+                "key": f"ticket_{row['ticket_id']}",
+                "type": "🚨 ESCALATED Support Ticket" if is_escalated else "Open Support Ticket",
+                "severity": "high" if is_escalated else "medium",
+                "affected_accounts": [row['account_id']],
+                "description": f"Ticket {row['ticket_id']}: '{row['subject']}' is {'ESCALATED and needs immediate attention' if is_escalated else 'pending resolution'}.",
+                "suggested_action": "Urgent: Reassign to senior tier support manager immediately." if is_escalated else "Review ticket details against customer SLA."
+            })
 
     except Exception as e:
         print(f"Error in anomaly scanner: {e}")
@@ -300,7 +274,12 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
             reason=action_args.get("reason", ""),
             metadata=action_args.get("metadata", {})
         )
-        status_msg = (
+        
+        # Tell the AI to tell the truth!
+        if "error" in execution_result_msg.lower() or "❌" in execution_result_msg:
+            status_msg = f"SYSTEM: Database update FAILED with error: {execution_result_msg}. Apologize to the user and explain the error."
+        else:
+            status_msg = (
             f"SYSTEM: User confirmed action. Execution Result: {execution_result_msg}. "
             f"CRITICAL INSTRUCTION: The backend has already executed the database change. "
             f"DO NOT call any more tools. Just tell the user the action was successful and stop."
