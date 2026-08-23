@@ -31,36 +31,21 @@ def request_action_confirmation(
 
 
 def execute_confirmed_action(action_type: str, target_id: str, account_id: str, reason: str, metadata: Dict[str, Any]) -> str:
-    """
-    Executes real state changes in SQLite database once human confirms the action.
-    Dynamically adapts to available column names in the schema.
-    """
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
     try:
-        if action_type == "escalate_ticket":
-            # Check table columns
-            cursor.execute("PRAGMA table_info(tickets)")
-            cols = {col[1].lower() for col in cursor.fetchall()}
+        # Check for both "escalate_ticket" and "escalate"
+        if action_type in ["escalate_ticket", "escalate"]:
+            cursor.execute(
+                "UPDATE tickets SET status = 'ESCALATED', priority = 'P1' WHERE ticket_id = ?",
+                (target_id,)
+            )
+            conn.commit()
+            return f"✅ Ticket {target_id} has been formally escalated to P1 in the database."
             
-            # Build update statement based on actual columns present
-            updates = []
-            if "status" in cols:
-                updates.append("status = 'ESCALATED'")
-            if "priority" in cols:
-                updates.append("priority = 'P1'")
-            elif "severity" in cols:
-                updates.append("severity = 'P1'")
-                
-            if updates:
-                sql = f"UPDATE tickets SET {', '.join(updates)} WHERE ticket_id = ?"
-                cursor.execute(sql, (target_id,))
-                conn.commit()
-                return f"✅ Ticket {target_id} has been formally escalated in the database."
-            return f"✅ Ticket {target_id} logged for escalation."
-            
-        elif action_type == "cancel_order":
+        # Check for both "cancel_order" and "cancel"
+        elif action_type in ["cancel_order", "cancel"]:
             cursor.execute(
                 "UPDATE orders SET status = 'CANCELLED' WHERE order_id = ?",
                 (target_id,)
@@ -69,7 +54,8 @@ def execute_confirmed_action(action_type: str, target_id: str, account_id: str, 
             fee = (metadata or {}).get("cancellation_fee_inr", 0)
             return f"✅ Order {target_id} has been marked as CANCELLED in database. Applied fee: ₹{fee}."
 
-        elif action_type == "grant_credit":
+        # Check for both "grant_credit" and "credit"
+        elif action_type in ["grant_credit", "credit"]:
             amount = (metadata or {}).get("credit_amount_inr", 0)
             return f"✅ Service credit of ₹{amount} has been logged and issued to account {account_id}."
 
