@@ -1,7 +1,7 @@
 # python -m src.main
 
 import uuid
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -43,9 +43,10 @@ class ChatResponse(BaseModel):
     thread_id: str
     requires_action: bool = False
     action_payload: Optional[Dict[str, Any]] = None
+    used_tools: Optional[List[Dict[str, str]]] = []
 
 # ==========================================
-# Helper Function
+# Helper Functions
 # ==========================================
 def extract_text_content(content: Any) -> str:
     """Safely extracts clean string content and strips out internal reasoning blocks."""
@@ -64,6 +65,20 @@ def extract_text_content(content: Any) -> str:
                 text_parts.append(part)
         return "\n".join(text_parts)
     return str(content)
+
+def extract_recent_tools(messages: list) -> list:
+    """Extracts tool outputs generated during the most recent user turn."""
+    used_tools = []
+    last_human_idx = next((i for i, msg in reversed(list(enumerate(messages))) if msg.type == 'human'), -1)
+    
+    if last_human_idx != -1:
+        for msg in messages[last_human_idx:]:
+            if msg.type == 'tool' and msg.name != "request_action_confirmation":
+                used_tools.append({
+                    "name": msg.name,
+                    "content": str(msg.content)
+                })
+    return used_tools
 
 # ==========================================
 # API Endpoints
@@ -99,6 +114,7 @@ def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
     
     last_message = state["messages"][-1]
+    used_tools = extract_recent_tools(state["messages"])
     
     # Check for Action Confirmation (Requirement #4)
     tool_calls = getattr(last_message, "tool_calls", None)
@@ -112,13 +128,15 @@ def chat_endpoint(request: ChatRequest):
                     action_payload={
                         "tool_call_id": tool_call["id"],
                         "details": tool_call["args"]  # Includes your new metadata field!
-                    }
+                    },
+                    used_tools=used_tools
                 )
                 
     return ChatResponse(
         response_text=extract_text_content(last_message.content),
         thread_id=thread_id,
-        requires_action=False
+        requires_action=False,
+        used_tools=used_tools
     )
 
 @app.post("/confirm_action", response_model=ChatResponse)
@@ -157,11 +175,13 @@ def confirm_action_endpoint(request: ActionConfirmationRequest):
         raise HTTPException(status_code=500, detail=str(e))
         
     last_message = state["messages"][-1]
+    used_tools = extract_recent_tools(state["messages"])
     
     return ChatResponse(
         response_text=extract_text_content(last_message.content),
         thread_id=request.thread_id,
-        requires_action=False
+        requires_action=False,
+        used_tools=used_tools
     )
     
     

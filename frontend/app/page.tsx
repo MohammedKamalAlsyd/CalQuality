@@ -1,6 +1,11 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -37,7 +42,28 @@ const { Text, Title } = Typography;
 const generateId = (prefix: string) =>
   `${prefix}_${Math.random().toString(36).substr(2, 9)}`;
 
+// --- Linter-Safe Mount Hook (Avoids Cascading Renders) ---
+const emptySubscribe = () => () => {};
+function useIsMounted() {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
+
 // --- Types ---
+type ActionPayload = {
+  tool_call_id: string;
+  details: {
+    action_type: string;
+    target_id: string;
+    reason: string;
+    account_id?: string;
+    metadata?: Record<string, unknown>;
+  };
+};
+
 type ToolData = {
   name: string;
   content: string;
@@ -48,7 +74,7 @@ type Message = {
   role: "user" | "ai";
   text: string;
   requiresAction?: boolean;
-  actionPayload?: any;
+  actionPayload?: ActionPayload; // 🔒 FIX 1: Strongly typed instead of any
   isConfirmed?: boolean;
   usedTools?: ToolData[];
 };
@@ -80,23 +106,19 @@ const PROMPTS_BY_ROLE: Record<string, string[]> = {
 };
 
 export default function TealSilverChat() {
+  const isMounted = useIsMounted(); // 🔒 FIX 2: SSR hydration safe hook
   const [currentUser, setCurrentUser] = useState(USERS[0]);
-  const [threadId, setThreadId] = useState<string>("");
+  const [threadId, setThreadId] = useState<string>(() => generateId("sess"));
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    setIsMounted(true);
-    setThreadId(generateId("sess"));
-  }, []);
-
+  // Auto-scroll on new messages
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isLoading, isMounted]);
+  }, [messages, isLoading]);
 
   const switchUser = (userId: string) => {
     const user = USERS.find((u) => u.id === userId)!;
@@ -134,7 +156,7 @@ export default function TealSilverChat() {
         text: data.response_text,
         requiresAction: data.requires_action,
         actionPayload: data.action_payload,
-        usedTools: data.used_tools, // Safely extract the new backend field
+        usedTools: data.used_tools,
       };
       setMessages((prev) => [...prev, aiMsg]);
     } catch {
@@ -323,7 +345,7 @@ export default function TealSilverChat() {
                 }}
               />
 
-              {/* FULLY VISIBLE PROMPT GRID (No hiding/dragging) */}
+              {/* FULLY VISIBLE PROMPT GRID */}
               <Flex
                 wrap="wrap"
                 justify="center"
@@ -573,7 +595,7 @@ export default function TealSilverChat() {
             </div>
           )}
 
-          {/* SENDER INPUT (Only shows at bottom when chat is active) */}
+          {/* SENDER INPUT */}
           {!isChatEmpty && (
             <div
               style={{
