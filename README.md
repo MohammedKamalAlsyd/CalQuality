@@ -26,7 +26,7 @@ pip install -r requirements.txt
 AWS_ACCESS_KEY_ID=your_key
 AWS_SECRET_ACCESS_KEY=your_secret
 AWS_REGION=us-east-1
-GENERATION_MODEL_ID=meta.llama3-70b-instruct-v1:0
+GENERATION_MODEL_ID=openai.gpt-oss-120b-1:0
 VOYAGE_API_KEY=your_voyage_key
 ```
 

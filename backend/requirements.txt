@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+langchain
+langgraph
+langchain-aws
+langchain-community
+pandas
+faiss-cpu
+sentence-transformers
+voyageai
+python-dotenv
+boto3
+sqlalchemy
+openpyxl
