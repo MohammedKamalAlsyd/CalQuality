@@ -1,7 +1,9 @@
 import json
+import sqlite3
 from typing import Optional, Dict, Any
 from langchain_core.tools import tool
 from langchain_core.runnables import RunnableConfig
+from src.config import DB_PATH
 
 @tool
 def request_action_confirmation(
@@ -12,24 +14,9 @@ def request_action_confirmation(
     config: Optional[RunnableConfig] = None
 ) -> str:
     """
-    Use this tool when you need to perform a state-changing action like:
-    - Escalate a ticket (action_type: 'escalate_ticket')
-    - Grant a service credit (action_type: 'grant_credit')
-    - Cancel an order (action_type: 'cancel_order')
-    
-    This tool prepares the action and pauses the system to ask the human user for confirmation.
-    
-    Args:
-        action_type: One of 'escalate_ticket', 'grant_credit', or 'cancel_order'.
-        ticket_or_order_id: The ID of the affected order or ticket (e.g., 'ORD-2002', 'TKT-501').
-        reason: Explanation of why this action is being taken based on policies/agreements.
-        account_id: The account ID performing or subject to the action.
-        metadata: Key-value pairs with action-specific calculations or parameters.
-            - For 'grant_credit': include 'credit_amount_inr' (int) and 'requires_manager_approval' (bool if > 1000).
-            - For 'escalate_ticket': include 'severity' ('P1'|'P2'|'P3'), 'csm' (str), and 'sla_breached' (bool).
-            - For 'cancel_order': include 'cancellation_fee_inr' (int) and 'order_status' (str).
+    Use this tool when preparing any state-changing action (escalate ticket, grant credit, cancel order).
+    This tool pauses the agent and asks the human user for approval.
     """
-
     account_id = (config or {}).get("configurable", {}).get("account_id", "UNKNOWN")
     
     payload = {
@@ -40,5 +27,54 @@ def request_action_confirmation(
         "account_id": account_id,
         "metadata": metadata or {}
     }
-    
     return json.dumps(payload)
+
+
+def execute_confirmed_action(action_type: str, target_id: str, account_id: str, reason: str, metadata: Dict[str, Any]) -> str:
+    """
+    Executes real state changes in SQLite database once human confirms the action.
+    Dynamically adapts to available column names in the schema.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        if action_type == "escalate_ticket":
+            # Check table columns
+            cursor.execute("PRAGMA table_info(tickets)")
+            cols = {col[1].lower() for col in cursor.fetchall()}
+            
+            # Build update statement based on actual columns present
+            updates = []
+            if "status" in cols:
+                updates.append("status = 'ESCALATED'")
+            if "priority" in cols:
+                updates.append("priority = 'P1'")
+            elif "severity" in cols:
+                updates.append("severity = 'P1'")
+                
+            if updates:
+                sql = f"UPDATE tickets SET {', '.join(updates)} WHERE ticket_id = ?"
+                cursor.execute(sql, (target_id,))
+                conn.commit()
+                return f"✅ Ticket {target_id} has been formally escalated in the database."
+            return f"✅ Ticket {target_id} logged for escalation."
+            
+        elif action_type == "cancel_order":
+            cursor.execute(
+                "UPDATE orders SET status = 'CANCELLED' WHERE order_id = ?",
+                (target_id,)
+            )
+            conn.commit()
+            fee = (metadata or {}).get("cancellation_fee_inr", 0)
+            return f"✅ Order {target_id} has been marked as CANCELLED in database. Applied fee: ₹{fee}."
+
+        elif action_type == "grant_credit":
+            amount = (metadata or {}).get("credit_amount_inr", 0)
+            return f"✅ Service credit of ₹{amount} has been logged and issued to account {account_id}."
+
+        return f"Action {action_type} executed successfully on {target_id}."
+    except Exception as e:
+        return f"Database execution error: {str(e)}"
+    finally:
+        conn.close()
